@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI } from '@google/genai';
 
@@ -81,6 +81,8 @@ const App = () => {
   const [error, setError] = useState('');
   const [audioError, setAudioError] = useState('');
   const [videoGenerationFailed, setVideoGenerationFailed] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
 
   // Agent 1: Script Generation
@@ -194,6 +196,15 @@ const App = () => {
       reader.readAsDataURL(file);
     }
   };
+
+  // Handle Image Clear
+  const handleClearImage = useCallback(() => {
+    setImage(null);
+    setCurrentStep(3); // Revert to this step
+    if (fileInputRef.current) {
+        fileInputRef.current.value = ""; // Allow re-uploading the same file
+    }
+  }, []);
   
   // Agent 3: Video Generation
   const generateVideo = useCallback(async () => {
@@ -284,6 +295,10 @@ const App = () => {
       setIsLoading({ script: false, video: false, audio: false });
       window.speechSynthesis.cancel();
   }
+  
+  const handleGoBack = useCallback(() => {
+      setCurrentStep(prev => prev - 1);
+  }, []);
 
   const handleResubmitVideo = useCallback(() => {
     generateVideo();
@@ -313,8 +328,13 @@ const App = () => {
       </StepCard>
 
       <StepCard step={2} title="Review Script & Voiceover" isActive={currentStep === 2} isComplete={currentStep > 2}>
-        <p>Here is your generated script:</p>
-        <div className="script-display">{script}</div>
+        <p>Here is your generated script. You can edit it below to fix spelling or make other changes:</p>
+        <textarea
+            className="script-display"
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            aria-label="Editable video script"
+        />
         <div className="voice-selection">
             <label>Choose a voice for the final audio:</label>
             <div className="radio-group">
@@ -324,7 +344,8 @@ const App = () => {
                 <label htmlFor="male-voice">Male</label>
             </div>
         </div>
-        <div className="script-actions">
+        <div className="step-actions">
+            <button onClick={handleGoBack} className="secondary-btn">Back</button>
             <button onClick={handleTextToSpeech} disabled={isLoading.audio}>Preview Voice</button>
             <button onClick={handleGenerateAudio} disabled={isLoading.audio}>
                 {isLoading.audio ? <><Loader /><span>Generating...</span></> : 'Generate Audio & Continue'}
@@ -344,16 +365,35 @@ const App = () => {
       <StepCard step={3} title="Provide a Base Image" isActive={currentStep === 3} isComplete={currentStep > 3}>
         <div className="form-group">
           <label htmlFor="image-upload">Upload an image to animate for the video.</label>
-          <input type="file" id="image-upload" accept="image/*" onChange={handleImageUpload} />
+          <div className="image-upload-controls">
+            <input 
+              type="file" 
+              id="image-upload" 
+              accept="image/*" 
+              onChange={handleImageUpload}
+              ref={fileInputRef} 
+            />
+            {image && (
+              <button onClick={handleClearImage} className="secondary-btn clear-btn">
+                &times; Clear Image
+              </button>
+            )}
+          </div>
           {image && <img src={`data:${image.mimeType};base64,${image.base64}`} alt="Preview" className="image-preview" />}
+        </div>
+         <div className="step-actions">
+            <button onClick={handleGoBack} className="secondary-btn">Back</button>
         </div>
       </StepCard>
         
       <StepCard step={4} title="Generate Video" isActive={currentStep === 4} isComplete={currentStep > 4}>
         <p>Ready to generate the final video based on your script and image.</p>
-        <button onClick={generateVideo} disabled={!image || isLoading.video}>
-            {isLoading.video ? <><Loader /><span>Generating Video...</span></> : 'Generate Video'}
-        </button>
+        <div className="step-actions">
+            <button onClick={handleGoBack} className="secondary-btn">Back</button>
+            <button onClick={generateVideo} disabled={!image || isLoading.video}>
+                {isLoading.video ? <><Loader /><span>Generating Video...</span></> : 'Generate Video'}
+            </button>
+        </div>
       </StepCard>
 
       <StepCard step={5} title="Final Video" isActive={currentStep === 5} isComplete={false}>
@@ -380,7 +420,10 @@ const App = () => {
                       <a href={audioUrl} download="voiceover.mp3" className="download-button">Download Audio (MP3)</a>
                   </div>
                 )}
-                <button onClick={resetApp} className="start-over-btn">Create Another Video</button>
+                <div className="step-actions">
+                    <button onClick={handleGoBack} className="secondary-btn">Back</button>
+                    <button onClick={resetApp} className="start-over-btn">Create Another Video</button>
+                </div>
             </div>
         )}
       </StepCard>
