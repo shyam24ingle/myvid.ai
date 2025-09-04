@@ -110,7 +110,7 @@ const App = () => {
       const combinedErrorMessage = potentialErrorMessages.join(' ');
       
       if (combinedErrorMessage.includes('quota') || combinedErrorMessage.includes('RESOURCE_EXHAUSTED')) {
-          setError("You've exceeded your API quota. Please check your plan and billing details, or try again later.");
+          setError("You've exceeded your API quota. Please check your plan and billing details, or or try again later.");
       } else {
           setError('Failed to generate script. Please try again.');
       }
@@ -243,6 +243,12 @@ const App = () => {
 
         clearInterval(messageInterval);
 
+        // Check for an explicit error in the completed operation
+        if (operation.error) {
+            console.error("Video generation failed with an operation error:", operation.error);
+            throw new Error(operation.error.message || 'The video generation service returned an error.');
+        }
+
         const uri = operation.response?.generatedVideos?.[0]?.video?.uri;
         if (uri) {
             const videoResponse = await fetch(`${uri}&key=${API_KEY}`);
@@ -259,22 +265,29 @@ const App = () => {
             const videoBlob = await videoResponse.blob();
             setVideoUrl(URL.createObjectURL(videoBlob));
         } else {
-            throw new Error("Video generation completed, but no video URI was found.");
+            // This case handles when the operation is 'done' but no video is returned,
+            // which often indicates a content policy violation during generation.
+            console.error("Video generation completed, but no video URI was found. Full operation object:", JSON.stringify(operation, null, 2));
+            throw new Error("VIDEO_URI_MISSING");
         }
     } catch (e) {
       console.error(e);
-      const potentialErrorMessages = [
-        e instanceof Error ? e.message : '',
-        JSON.stringify(e),
-      ];
-      const combinedErrorMessage = potentialErrorMessages.join(' ');
+      setVideoGenerationFailed(true); // Consistently show resubmit UI on any video error
+
+      // FIX: The error `e` is of type `unknown`. This block has been refactored to safely extract a string message from it.
+      const errorInst = e instanceof Error ? e : new Error(String(e));
+      const errorMessage = errorInst.message;
       
-      if (combinedErrorMessage.includes('quota') || combinedErrorMessage.includes('RESOURCE_EXHAUSTED')) {
-          setVideoGenerationFailed(true);
+      if (errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
+          setError("You've exceeded your API quota for video generation. Please check your plan and billing details, or try again later.");
+      } else if (errorMessage.includes('VIDEO_URI_MISSING')) {
+          setError("Video generation finished, but no video was created. This often happens due to content policy violations. Please try adjusting your script or image and resubmitting.");
+      } else if (errorMessage.toLowerCase().includes('sensitive') || errorMessage.toLowerCase().includes('policy') || errorMessage.toLowerCase().includes('responsible ai')) {
+          setError(`The prompt was rejected due to content policies. Please revise your script to align with safety guidelines and try again. (Details: ${errorMessage})`);
       } else {
-          const errorMessage = e instanceof Error ? e.message : "An unknown error occurred. See console for details.";
-          setError(`Failed to generate video. ${errorMessage}`);
+          setError(`Failed to generate video due to an unexpected error. Please try again. (Details: ${errorMessage})`);
       }
+
     } finally {
       setIsLoading(prev => ({ ...prev, video: false }));
       clearInterval(messageInterval);
@@ -312,7 +325,7 @@ const App = () => {
         </button>
       )}
       <h1>AI YouTube Studio</h1>
-      {error && <p className="error-message">{error}</p>}
+      {error && !videoGenerationFailed && <p className="error-message">{error}</p>}
 
       <StepCard step={1} title="Write the Script" isActive={currentStep === 1} isComplete={currentStep > 1}>
         <div className="form-group">
@@ -405,7 +418,7 @@ const App = () => {
         )}
         {videoGenerationFailed && !isLoading.video && (
             <div className="resubmit-container">
-                <p>The video generation service is temporarily busy. Please try resubmitting.</p>
+                <p>{error || 'An unexpected error occurred. Please try resubmitting.'}</p>
                 <button onClick={handleResubmitVideo}>Resubmit Generation</button>
             </div>
         )}
